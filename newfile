@@ -1,1 +1,623 @@
--- [ Services ] local Players = game:GetService("Players") local RunService = game:GetService("RunService") local UserInputService = game:GetService("UserInputService") local StarterGui = game:GetService("StarterGui") local Lighting = game:GetService("Lighting") local clickHoldToggle = false UserInputService.InputBegan:Connect(function(input, gpe) if gpe then return end -- Toggle GUI with K if input.KeyCode == Enum.KeyCode.K then isOpen = not isOpen mainFrame.Visible = isOpen end -- Toggle simulated left click hold with O if input.KeyCode == Enum.KeyCode.O then clickHoldToggle = not clickHoldToggle holdingClick = clickHoldToggle showMessage("Click Hold " .. (clickHoldToggle and "ON" or "OFF")) end -- Real mouse click if input.UserInputType == Enum.UserInputType.MouseButton1 then holdingClick = true end end) UserInputService.InputEnded:Connect(function(input, gpe) if input.UserInputType == Enum.UserInputType.MouseButton1 and not clickHoldToggle then holdingClick = false end end) -- [ Player Setup ] local player = Players.LocalPlayer local character = player.Character or player.CharacterAdded:Wait() local root = character:WaitForChild("HumanoidRootPart") local actionStates = {} local noclip = false local spinning = false local typedCoordinates = nil local savedLocations = {} local killToggle = false --- local selectedKillTarget = nil local holdingClick = false local bodyGyro = nil -- [ UI Setup ] local screenGui = Instance.new("ScreenGui") screenGui.Name = "DeckHubSimpleUI" screenGui.ResetOnSpawn = false screenGui.IgnoreGuiInset = false screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global screenGui.Parent = player:WaitForChild("PlayerGui") local mainFrame = Instance.new("Frame") mainFrame.Size = UDim2.new(0, 260, 0, 420) mainFrame.Position = UDim2.new(0, 10, 0.3, 0) mainFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0) mainFrame.BorderSizePixel = 0 mainFrame.Active = true mainFrame.Draggable = true mainFrame.Parent = screenGui local title = Instance.new("TextLabel") title.Text = "DeckHub Menu" title.Size = UDim2.new(1, 0, 0, 28) title.BackgroundColor3 = Color3.fromRGB(30, 0, 50) title.TextColor3 = Color3.new(1, 1, 1) title.Font = Enum.Font.GothamBold title.TextSize = 14 title.Parent = mainFrame local tabFolder = Instance.new("Folder", mainFrame) -- [ Tabs ] --- local tabNames = {"Movement", "Character", "Environment", "Audio", "Teleports", "Kill"} local tabFrames = {} local tabHeight = 28 for i, tabName in ipairs(tabNames) do local tab = Instance.new("TextButton") tab.Size = UDim2.new(1/#tabNames, 0, 0, tabHeight) tab.Position = UDim2.new((i-1)/#tabNames, 0, 0, 28) tab.BackgroundColor3 = Color3.fromRGB(80, 0, 120) tab.TextColor3 = Color3.new(1,1,1) tab.Font = Enum.Font.Gotham tab.TextSize = 9 tab.Text = tabName tab.Parent = mainFrame local contentFrame = Instance.new("Frame") contentFrame.Size = UDim2.new(1, -10, 1, -28 - tabHeight - 10) contentFrame.Position = UDim2.new(0, 5, 0, 28 + tabHeight + 5) contentFrame.BackgroundTransparency = 0 contentFrame.BackgroundColor3 = Color3.fromRGB(10, 0, 20) contentFrame.Visible = (i == 1) contentFrame.Name = tabName contentFrame.Parent = tabFolder local list = Instance.new("UIListLayout", contentFrame) list.SortOrder = Enum.SortOrder.LayoutOrder list.Padding = UDim.new(0, 6) tab.MouseButton1Click:Connect(function() for _, f in ipairs(tabFolder:GetChildren()) do f.Visible = false end contentFrame.Visible = true end) tabFrames[tabName] = contentFrame end -- [ Notification ] local function showMessage(text) pcall(function() StarterGui:SetCore("SendNotification", { Title = "DeckHub", Text = text, Duration = 2 }) end) end -- [ UI Helpers ] local function createButton(tabName, text, callback) local btn = Instance.new("TextButton") btn.Size = UDim2.new(1, 0, 0, 30) btn.BackgroundColor3 = Color3.fromRGB(80, 0, 120) btn.TextColor3 = Color3.new(1, 1, 1) btn.Font = Enum.Font.GothamBold btn.TextSize = 13 btn.Text = text btn.Parent = tabFrames[tabName] btn.MouseButton1Click:Connect(callback) end local function createInput(tabName, placeholder, onEnter) local box = Instance.new("TextBox") box.Size = UDim2.new(1, 0, 0, 30) box.PlaceholderText = placeholder box.Text = "" box.ClearTextOnFocus = false box.BackgroundColor3 = Color3.fromRGB(40, 0, 60) box.TextColor3 = Color3.new(1,1,1) box.Font = Enum.Font.Gotham box.TextSize = 13 box.Parent = tabFrames[tabName] box.FocusLost:Connect(function(enter) if enter then onEnter(box.Text) end end) end -- [ Movement Tab ] local infiniteJumpEnabled = false local hoverWalkEnabled = false local hoverHeight = 10 -- Infinite Jump createButton("Movement", "Fly", function() infiniteJumpEnabled = not infiniteJumpEnabled showMessage(infiniteJumpEnabled and "Infinite Jump ON" or "Infinite Jump OFF") end) UserInputService.JumpRequest:Connect(function() if infiniteJumpEnabled and character then local hum = character:FindFirstChildOfClass("Humanoid") if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end end end) -- Noclip createButton("Movement", "Noclip", function() noclip = not noclip showMessage(noclip and "Noclip ON" or "Noclip OFF") end) RunService.Stepped:Connect(function() if noclip and character then for _, part in ipairs(character:GetDescendants()) do if part:IsA("BasePart") then part.CanCollide = false end end end end) -- Speed createButton("Movement", "Speed", function() actionStates.Speed = not actionStates.Speed showMessage(actionStates.Speed and "Speed ON" or "Speed OFF") coroutine.wrap(function() while actionStates.Speed do local hum = character:FindFirstChildOfClass("Humanoid") if hum then hum.WalkSpeed = 50 end task.wait(0.5) end local hum = character:FindFirstChildOfClass("Humanoid") if hum then hum.WalkSpeed = 16 end end)() end) -- Hover Walk createButton("Movement", "Toggle Hover Walk", function() hoverWalkEnabled = not hoverWalkEnabled showMessage(hoverWalkEnabled and "Hover Walk ON" or "Hover Walk OFF") end) RunService.Heartbeat:Connect(function() if hoverWalkEnabled and character and character:FindFirstChild("HumanoidRootPart") then local root = character.HumanoidRootPart local rayOrigin = root.Position local rayDirection = Vector3.new(0, -100, 0) local raycastParams = RaycastParams.new() raycastParams.FilterDescendantsInstances = {character} raycastParams.FilterType = Enum.RaycastFilterType.Blacklist local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams) if result then local groundY = result.Position.Y local desiredY = groundY + hoverHeight local currentPos = root.Position if math.abs(currentPos.Y - desiredY) > 1 then root.Velocity = Vector3.new(root.Velocity.X, (desiredY - currentPos.Y) * 5, root.Velocity.Z) else root.Velocity = Vector3.new(root.Velocity.X, 0, root.Velocity.Z) end end end end) -- [ Character Tab ] createButton("Character", "Jump Boost", function() local hum = character:FindFirstChildOfClass("Humanoid") if hum then actionStates.Jump = not actionStates.Jump hum.JumpPower = actionStates.Jump and 150 or 50 showMessage(actionStates.Jump and "Jump Boost ON" or "Jump Boost OFF") end end) createButton("Character", "Sit", function() local hum = character:FindFirstChildOfClass("Humanoid") if hum then hum.Sit = true showMessage("Sitting") end end) createButton("Character", "Heal", function() local hum = character:FindFirstChildOfClass("Humanoid") if hum then hum.Health = hum.MaxHealth showMessage("Healed") end end) createButton("Character", "Invisibility", function() actionStates.Invis = not actionStates.Invis for _, p in ipairs(character:GetDescendants()) do if p:IsA("BasePart") or p:IsA("Decal") then p.Transparency = actionStates.Invis and 1 or 0 end end showMessage(actionStates.Invis and "Invisible" or "Visible") end) createButton("Character", "Reset", function() character:BreakJoints() end) -- [ Environment Tab ] createButton("Environment", "Light", function() local light = root:FindFirstChild("Light") or Instance.new("PointLight", root) light.Name = "Light" light.Brightness = 2 light.Range = 15 light.Enabled = not light.Enabled showMessage(light.Enabled and "Light ON" or "Light OFF") end) createButton("Environment", "Darkness", function() actionStates.Dark = not actionStates.Dark Lighting.Ambient = actionStates.Dark and Color3.new(0, 0, 0) or Color3.new(0.5, 0.5, 0.5) Lighting.OutdoorAmbient = Lighting.Ambient showMessage(actionStates.Dark and "Darkness ON" or "Darkness OFF") end) -- [ Audio Tab ] createButton("Audio", "Music", function() local music = root:FindFirstChild("HubMusic") or Instance.new("Sound", root) music.Name = "HubMusic" music.Looped = true music.SoundId = "rbxassetid://9118823100" music.Volume = 0.5 if music.IsPlaying then music:Stop() showMessage("Music OFF") else music:Play() showMessage("Music ON") end end) -- [ Teleports Tab ] createButton("Teleports", "📍 Reveal Location", function() local pos = root.Position local displayMsg = string.format("X: %.1f, Y: %.1f, Z: %.1f", pos.X, pos.Y, pos.Z) local rawCoords = string.format("%.1f, %.1f, %.1f", pos.X, pos.Y, pos.Z) showMessage("Copied:\n" .. displayMsg) if setclipboard then setclipboard(rawCoords) end end) createInput("Teleports", "Enter Coordinates (x,y,z)", function(text) typedCoordinates = text end) createButton("Teleports", "Teleport", function() if not typedCoordinates then showMessage("No coordinates entered.") return end local x, y, z = string.match(typedCoordinates, "(-?%d+%.?%d*),%s*(-?%d+%.?%d*),%s*(-?%d+%.?%d*)") if x and y and z then root.CFrame = CFrame.new(tonumber(x), tonumber(y), tonumber(z)) showMessage("Teleported to: " .. x .. ", " .. y .. ", " .. z) else showMessage("Invalid format. Use: x, y, z") end end) createInput("Teleports", "Save Location As...", function(name) if name and #name > 0 and typedCoordinates then local x, y, z = string.match(typedCoordinates, "(-?%d+%.?%d*),%s*(-?%d+%.?%d*),%s*(-?%d+%.?%d*)") if x and y and z then savedLocations[name] = Vector3.new(tonumber(x), tonumber(y), tonumber(z)) showMessage("Saved location: " .. name) else showMessage("Invalid coordinates. Format: x, y, z") end else showMessage("Missing name or coordinates.") end end) createButton("Teleports", "📜 Show Saved Locations", function() local tab = tabFrames["Teleports"] for _, child in ipairs(tab:GetChildren()) do if child:IsA("TextButton") and not ( child.Text == "📍 Reveal Location" or child.Text == "Teleport" or child.Text == "📜 Show Saved Locations" ) then child:Destroy() end end for name, pos in pairs(savedLocations) do local coordLabel = string.format("↪ %s (%.1f, %.1f, %.1f)", name, pos.X, pos.Y, pos.Z) createButton("Teleports", coordLabel, function() root.CFrame = CFrame.new(pos) showMessage("Teleported to " .. name) end) end end) createButton("Teleports", "🎯 Show Players", function() local tab = tabFrames["Teleports"] -- Clear previous player teleport buttons for _, child in ipairs(tab:GetChildren()) do if child:IsA("TextButton") and child.Text:match("^➡") then child:Destroy() end end for _, targetPlayer in ipairs(Players:GetPlayers()) do if targetPlayer ~= player then local label = "➡ " .. targetPlayer.Name createButton("Teleports", label, function() local char = targetPlayer.Character if char and char:FindFirstChild("HumanoidRootPart") then root.CFrame = char.HumanoidRootPart.CFrame + Vector3.new(0, 5, 0) showMessage("Teleported to " .. targetPlayer.Name) else showMessage("Target not available.") end end) end end end) -- [ Toggle GUI Keybind ] local isOpen = true UserInputService.InputBegan:Connect(function(input, gpe) if gpe then return end if input.KeyCode == Enum.KeyCode.K then isOpen = not isOpen mainFrame.Visible = isOpen end end) -- [ Click Teleport Tool ] createButton("Teleports", "🖱️ Enable Click Teleport", function() local mouse = player:GetMouse() local toolActive = true showMessage("Click Teleport ON. Click anywhere to teleport. Press 'L' to cancel.") local function onClick() if toolActive then local targetPos = mouse.Hit.Position if targetPos then root.CFrame = CFrame.new(targetPos + Vector3.new(0, 5, 0)) -- Slightly above surface showMessage("Teleported to click position") end end end local clickConnection = mouse.Button1Down:Connect(onClick) -- Toggle off with 'L' local keyConnection keyConnection = UserInputService.InputBegan:Connect(function(input, gpe) if gpe then return end if input.KeyCode == Enum.KeyCode.L then toolActive = false clickConnection:Disconnect() keyConnection:Disconnect() showMessage("Click Teleport OFF") end end) end) -- [ Kill Tab State ] local npcListVisible = false local playerListVisible = false local autoNearestNpc = false local killToggle = false local selectedKillTarget = nil local walkingToNpc = false local walkSpeedBackup = nil -- [ Helper: Find Nearest NPC ] local function findNearestNpc() local nearest, shortestDist = nil, math.huge for _, model in ipairs(workspace:GetDescendants()) do if model:IsA("Model") and model:FindFirstChild("Humanoid") and model:FindFirstChild("HumanoidRootPart") and not Players:GetPlayerFromCharacter(model) then local hum = model:FindFirstChild("Humanoid") if hum and hum.Health > 0 then local dist = (root.Position - model.HumanoidRootPart.Position).Magnitude if dist < shortestDist then shortestDist = dist nearest = model end end end end return nearest end -- [ Kill Tab Buttons ] createButton("Kill", "🔪 Toggle Kill Mode", function() killToggle = not killToggle showMessage(killToggle and "Kill Mode ON" or "Kill Mode OFF") end) createButton("Kill", "🤖 Toggle Auto Nearest NPC", function() autoNearestNpc = not autoNearestNpc showMessage(autoNearestNpc and "Auto Nearest NPC ON" or "Auto Nearest NPC OFF") end) createButton("Kill", "📋 Select Target Player", function() local tab = tabFrames["Kill"] playerListVisible = not playerListVisible for _, child in ipairs(tab:GetChildren()) do if child:IsA("TextButton") and child.Name == "PlayerSelect" then child:Destroy() end end if not playerListVisible then return end for _, p in ipairs(Players:GetPlayers()) do if p ~= player then local btn = Instance.new("TextButton") btn.Name = "PlayerSelect" btn.Size = UDim2.new(1, 0, 0, 30) btn.BackgroundColor3 = Color3.fromRGB(60, 0, 90) btn.TextColor3 = Color3.new(1, 1, 1) btn.Font = Enum.Font.GothamBold btn.TextSize = 12 btn.Text = "🎯 " .. p.Name btn.Parent = tab btn.MouseButton1Click:Connect(function() if p.Character then selectedKillTarget = p.Character showMessage("Selected Player: " .. p.Name) end end) end end end) createButton("Kill", "📋 Select Target NPC", function() local tab = tabFrames["Kill"] npcListVisible = not npcListVisible for _, child in ipairs(tab:GetChildren()) do if child:IsA("TextButton") and child.Name == "NPCSelect" then child:Destroy() end end if not npcListVisible then return end for _, model in ipairs(workspace:GetDescendants()) do if model:IsA("Model") and model:FindFirstChild("Humanoid") and model:FindFirstChild("HumanoidRootPart") and not Players:GetPlayerFromCharacter(model) then local btn = Instance.new("TextButton") btn.Name = "NPCSelect" btn.Size = UDim2.new(1, 0, 0, 30) btn.BackgroundColor3 = Color3.fromRGB(60, 0, 90) btn.TextColor3 = Color3.new(1, 1, 1) btn.Font = Enum.Font.GothamBold btn.TextSize = 12 btn.Text = "🤖 " .. model.Name btn.Parent = tab btn.MouseButton1Click:Connect(function() selectedKillTarget = model showMessage("Selected NPC: " .. model.Name) end) end end end) createButton("Kill", "🚶 Walk to Nearest NPC", function() walkingToNpc = not walkingToNpc showMessage(walkingToNpc and "Walking to Nearest NPC ON" or "Walking to Nearest NPC OFF") local hum = character:FindFirstChildOfClass("Humanoid") if walkingToNpc and hum then walkSpeedBackup = hum.WalkSpeed hum.WalkSpeed = 100 else if hum and walkSpeedBackup then hum.WalkSpeed = walkSpeedBackup end end end) -- [ Kill Runtime Logic ] RunService.Heartbeat:Connect(function() -- Auto-target nearest NPC if toggle is on if autoNearestNpc then if not selectedKillTarget or (selectedKillTarget:FindFirstChild("Humanoid") and selectedKillTarget.Humanoid.Health <= 0) then selectedKillTarget = findNearestNpc() if selectedKillTarget then showMessage("Auto-targeting: " .. selectedKillTarget.Name) end end end -- Walk to nearest NPC if walkingToNpc then local npc = findNearestNpc() if npc and npc:FindFirstChild("HumanoidRootPart") then local hum = character:FindFirstChildOfClass("Humanoid") if hum then hum:MoveTo(npc.HumanoidRootPart.Position) end end end -- Kill logic: move/rotate behind target if killToggle and holdingClick and selectedKillTarget and selectedKillTarget:FindFirstChild("HumanoidRootPart") then local targetHRP = selectedKillTarget.HumanoidRootPart local behindPos = targetHRP.Position - targetHRP.CFrame.LookVector * 3 + Vector3.new(0, 2, 0) local lookAt = CFrame.new(behindPos, targetHRP.Position) root.CFrame = root.CFrame:Lerp(lookAt, 0.35) end end) -- Kill logic: follow target and rotate toward them if killToggle and holdingClick and selectedKillTarget and selectedKillTarget:FindFirstChild("HumanoidRootPart") then local targetHRP = selectedKillTarget.HumanoidRootPart local targetPos = targetHRP.Position local currentPos = root.Position -- Position slightly behind the NPC local behindPos = targetPos - targetHRP.CFrame.LookVector * 3 + Vector3.new(0, 2, 0) -- Make player face the NPC local lookCFrame = CFrame.new(currentPos, targetPos) root.CFrame = CFrame.new(currentPos) * CFrame.Angles(0, math.atan2(targetPos.X - currentPos.X, targetPos.Z - currentPos.Z), 0) -- Optional: move closer -- root.CFrame = root.CFrame:Lerp(lookCFrame, 0.35) end -- [ Toggle GUI Keybind ] local isOpen = true UserInputService.InputBegan:Connect(function(input, gpe) if gpe then return end if input.KeyCode == Enum.KeyCode.K then isOpen = not isOpen mainFrame.Visible = isOpen end end)
+-- [ Services ]
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local StarterGui = game:GetService("StarterGui")
+local Lighting = game:GetService("Lighting")
+local clickHoldToggle = false
+
+UserInputService.InputBegan:Connect(function(input, gpe)
+	if gpe then return end
+
+	-- Toggle GUI with K
+	if input.KeyCode == Enum.KeyCode.K then
+		isOpen = not isOpen
+		mainFrame.Visible = isOpen
+	end
+
+	-- Toggle simulated left click hold with O
+	if input.KeyCode == Enum.KeyCode.O then
+		clickHoldToggle = not clickHoldToggle
+		holdingClick = clickHoldToggle
+		showMessage("Click Hold " .. (clickHoldToggle and "ON" or "OFF"))
+	end
+
+	-- Real mouse click
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		holdingClick = true
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input, gpe)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 and not clickHoldToggle then
+		holdingClick = false
+	end
+end)
+
+
+-- [ Player Setup ]
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local root = character:WaitForChild("HumanoidRootPart")
+
+local actionStates = {}
+local noclip = false
+local spinning = false
+local typedCoordinates = nil
+local savedLocations = {}
+local killToggle = false ---
+local selectedKillTarget = nil
+local holdingClick = false
+local bodyGyro = nil
+
+
+
+-- [ UI Setup ]
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "DeckHub"
+screenGui.ResetOnSpawn = true
+screenGui.IgnoreGuiInset = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 260, 0, 420)
+mainFrame.Position = UDim2.new(0, 10, 0.3, 0)
+mainFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = screenGui
+
+local title = Instance.new("TextLabel")
+title.Text = "DeckHub Menu"
+title.Size = UDim2.new(1, 0, 0, 28)
+title.BackgroundColor3 = Color3.fromRGB(30, 0, 50)
+title.TextColor3 = Color3.new(1, 1, 1)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 14
+title.Parent = mainFrame
+
+local tabFolder = Instance.new("Folder", mainFrame)
+
+-- [ Tabs ] ---
+local tabNames = {"Movement", "Character", "Environment", "Audio", "Teleports", "Kill"}
+local tabFrames = {}
+local tabHeight = 28
+
+for i, tabName in ipairs(tabNames) do
+	local tab = Instance.new("TextButton")
+	tab.Size = UDim2.new(1/#tabNames, 0, 0, tabHeight)
+	tab.Position = UDim2.new((i-1)/#tabNames, 0, 0, 28)
+	tab.BackgroundColor3 = Color3.fromRGB(80, 0, 120)
+	tab.TextColor3 = Color3.new(1,1,1)
+	tab.Font = Enum.Font.Gotham
+	tab.TextSize = 9
+	tab.Text = tabName
+	tab.Parent = mainFrame
+
+	local contentFrame = Instance.new("Frame")
+	contentFrame.Size = UDim2.new(1, -10, 1, -28 - tabHeight - 10)
+	contentFrame.Position = UDim2.new(0, 5, 0, 28 + tabHeight + 5)
+	contentFrame.BackgroundTransparency = 0
+	contentFrame.BackgroundColor3 = Color3.fromRGB(10, 0, 20)
+	contentFrame.Visible = (i == 1)
+	contentFrame.Name = tabName
+	contentFrame.Parent = tabFolder
+
+	local list = Instance.new("UIListLayout", contentFrame)
+	list.SortOrder = Enum.SortOrder.LayoutOrder
+	list.Padding = UDim.new(0, 6)
+
+	tab.MouseButton1Click:Connect(function()
+		for _, f in ipairs(tabFolder:GetChildren()) do
+			f.Visible = false
+		end
+		contentFrame.Visible = true
+	end)
+
+	tabFrames[tabName] = contentFrame
+end
+
+-- [ Notification ]
+local function showMessage(text)
+	pcall(function()
+		StarterGui:SetCore("SendNotification", {
+			Title = "DeckHub",
+			Text = text,
+			Duration = 2
+		})
+	end)
+end
+
+-- [ UI Helpers ]
+local function createButton(tabName, text, callback)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(1, 0, 0, 30)
+	btn.BackgroundColor3 = Color3.fromRGB(80, 0, 120)
+	btn.TextColor3 = Color3.new(1, 1, 1)
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 13
+	btn.Text = text
+	btn.Parent = tabFrames[tabName]
+	btn.MouseButton1Click:Connect(callback)
+end
+
+local function createInput(tabName, placeholder, onEnter)
+	local box = Instance.new("TextBox")
+	box.Size = UDim2.new(1, 0, 0, 30)
+	box.PlaceholderText = placeholder
+	box.Text = ""
+	box.ClearTextOnFocus = false
+	box.BackgroundColor3 = Color3.fromRGB(40, 0, 60)
+	box.TextColor3 = Color3.new(1,1,1)
+	box.Font = Enum.Font.Gotham
+	box.TextSize = 13
+	box.Parent = tabFrames[tabName]
+	box.FocusLost:Connect(function(enter)
+		if enter then
+			onEnter(box.Text)
+		end
+	end)
+end
+
+-- [ Movement Tab ]
+local infiniteJumpEnabled = false
+local hoverWalkEnabled = false
+local hoverHeight = 15
+
+-- Infinite Jump
+createButton("Movement", "Fly", function()
+	infiniteJumpEnabled = not infiniteJumpEnabled
+	showMessage(infiniteJumpEnabled and "Infinite Jump ON" or "Infinite Jump OFF")
+end)
+
+UserInputService.JumpRequest:Connect(function()
+	if infiniteJumpEnabled and character then
+		local hum = character:FindFirstChildOfClass("Humanoid")
+		if hum then
+			hum:ChangeState(Enum.HumanoidStateType.Jumping)
+		end
+	end
+end)
+
+-- Noclip
+createButton("Movement", "Noclip", function()
+	noclip = not noclip
+	showMessage(noclip and "Noclip ON" or "Noclip OFF")
+end)
+
+RunService.Stepped:Connect(function()
+	if noclip and character then
+		for _, part in ipairs(character:GetDescendants()) do
+			if part:IsA("BasePart") then
+				part.CanCollide = false
+			end
+		end
+	end
+end)
+
+-- Speed
+createButton("Movement", "Speed", function()
+	actionStates.Speed = not actionStates.Speed
+	showMessage(actionStates.Speed and "Speed ON" or "Speed OFF")
+
+	coroutine.wrap(function()
+		while actionStates.Speed do
+			local hum = character:FindFirstChildOfClass("Humanoid")
+			if hum then
+				hum.WalkSpeed = 90
+			end
+			task.wait(0.5)
+		end
+		local hum = character:FindFirstChildOfClass("Humanoid")
+		if hum then
+			hum.WalkSpeed = 16
+		end
+	end)()
+end)
+
+-- Hover Walk
+createButton("Movement", "Toggle Hover Walk", function()
+	hoverWalkEnabled = not hoverWalkEnabled
+	showMessage(hoverWalkEnabled and "Hover Walk ON" or "Hover Walk OFF")
+end)
+
+RunService.Heartbeat:Connect(function()
+	if hoverWalkEnabled and character and character:FindFirstChild("HumanoidRootPart") then
+		local root = character.HumanoidRootPart
+		local rayOrigin = root.Position
+		local rayDirection = Vector3.new(0, -100, 0)
+		local raycastParams = RaycastParams.new()
+		raycastParams.FilterDescendantsInstances = {character}
+		raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+
+		local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+
+		if result then
+			local groundY = result.Position.Y
+			local desiredY = groundY + hoverHeight
+			local currentPos = root.Position
+
+			if math.abs(currentPos.Y - desiredY) > 1 then
+				root.Velocity = Vector3.new(root.Velocity.X, (desiredY - currentPos.Y) * 5, root.Velocity.Z)
+			else
+				root.Velocity = Vector3.new(root.Velocity.X, 0, root.Velocity.Z)
+			end
+		end
+	end
+end)
+
+
+
+-- [ Character Tab ]
+createButton("Character", "Jump Boost", function()
+	local hum = character:FindFirstChildOfClass("Humanoid")
+	if hum then
+		actionStates.Jump = not actionStates.Jump
+		hum.JumpPower = actionStates.Jump and 150 or 50
+		showMessage(actionStates.Jump and "Jump Boost ON" or "Jump Boost OFF")
+	end
+end)
+
+createButton("Character", "Sit", function()
+	local hum = character:FindFirstChildOfClass("Humanoid")
+	if hum then hum.Sit = true showMessage("Sitting") end
+end)
+
+createButton("Character", "Heal", function()
+	local hum = character:FindFirstChildOfClass("Humanoid")
+	if hum then hum.Health = hum.MaxHealth showMessage("Healed") end
+end)
+
+createButton("Character", "Invisibility", function()
+	actionStates.Invis = not actionStates.Invis
+	for _, p in ipairs(character:GetDescendants()) do
+		if p:IsA("BasePart") or p:IsA("Decal") then
+			p.Transparency = actionStates.Invis and 1 or 0
+		end
+	end
+	showMessage(actionStates.Invis and "Invisible" or "Visible")
+end)
+
+createButton("Character", "Reset", function()
+	character:BreakJoints()
+end)
+
+-- [ Environment Tab ]
+createButton("Environment", "Light", function()
+	local light = root:FindFirstChild("Light") or Instance.new("PointLight", root)
+	light.Name = "Light"
+	light.Brightness = 2
+	light.Range = 15
+	light.Enabled = not light.Enabled
+	showMessage(light.Enabled and "Light ON" or "Light OFF")
+end)
+
+createButton("Environment", "Darkness", function()
+	actionStates.Dark = not actionStates.Dark
+	Lighting.Ambient = actionStates.Dark and Color3.new(0, 0, 0) or Color3.new(0.5, 0.5, 0.5)
+	Lighting.OutdoorAmbient = Lighting.Ambient
+	showMessage(actionStates.Dark and "Darkness ON" or "Darkness OFF")
+end)
+
+-- [ Audio Tab ]
+createButton("Audio", "Music", function()
+	local music = root:FindFirstChild("HubMusic") or Instance.new("Sound", root)
+	music.Name = "HubMusic"
+	music.Looped = true
+	music.SoundId = "rbxassetid://9118823100"
+	music.Volume = 0.5
+	if music.IsPlaying then
+		music:Stop()
+		showMessage("Music OFF")
+	else
+		music:Play()
+		showMessage("Music ON")
+	end
+end)
+
+-- [ Teleports Tab ]
+createButton("Teleports", "📍 Reveal Location", function()
+	local pos = root.Position
+	local displayMsg = string.format("X: %.1f, Y: %.1f, Z: %.1f", pos.X, pos.Y, pos.Z)
+	local rawCoords = string.format("%.1f, %.1f, %.1f", pos.X, pos.Y, pos.Z)
+	showMessage("Copied:\n" .. displayMsg)
+	if setclipboard then
+		setclipboard(rawCoords)
+	end
+end)
+
+createInput("Teleports", "Enter Coordinates (x,y,z)", function(text)
+	typedCoordinates = text
+end)
+
+createButton("Teleports", "Teleport", function()
+	if not typedCoordinates then
+		showMessage("No coordinates entered.")
+		return
+	end
+	local x, y, z = string.match(typedCoordinates, "(-?%d+%.?%d*),%s*(-?%d+%.?%d*),%s*(-?%d+%.?%d*)")
+	if x and y and z then
+		root.CFrame = CFrame.new(tonumber(x), tonumber(y), tonumber(z))
+		showMessage("Teleported to: " .. x .. ", " .. y .. ", " .. z)
+	else
+		showMessage("Invalid format. Use: x, y, z")
+	end
+end)
+
+createInput("Teleports", "Save Location As...", function(name)
+	if name and #name > 0 and typedCoordinates then
+		local x, y, z = string.match(typedCoordinates, "(-?%d+%.?%d*),%s*(-?%d+%.?%d*),%s*(-?%d+%.?%d*)")
+		if x and y and z then
+			savedLocations[name] = Vector3.new(tonumber(x), tonumber(y), tonumber(z))
+			showMessage("Saved location: " .. name)
+		else
+			showMessage("Invalid coordinates. Format: x, y, z")
+		end
+	else
+		showMessage("Missing name or coordinates.")
+	end
+end)
+
+createButton("Teleports", "📜 Show Saved Locations", function()
+	local tab = tabFrames["Teleports"]
+	for _, child in ipairs(tab:GetChildren()) do
+		if child:IsA("TextButton") and not (
+			child.Text == "📍 Reveal Location" or 
+			child.Text == "Teleport" or 
+			child.Text == "📜 Show Saved Locations"
+		) then
+			child:Destroy()
+		end
+	end
+	for name, pos in pairs(savedLocations) do
+		local coordLabel = string.format("↪ %s (%.1f, %.1f, %.1f)", name, pos.X, pos.Y, pos.Z)
+		createButton("Teleports", coordLabel, function()
+			root.CFrame = CFrame.new(pos)
+			showMessage("Teleported to " .. name)
+		end)
+	end
+end)
+createButton("Teleports", "🎯 Show Players", function()
+	local tab = tabFrames["Teleports"]
+
+	-- Clear previous player teleport buttons
+	for _, child in ipairs(tab:GetChildren()) do
+		if child:IsA("TextButton") and child.Text:match("^➡") then
+			child:Destroy()
+		end
+	end
+
+	for _, targetPlayer in ipairs(Players:GetPlayers()) do
+		if targetPlayer ~= player then
+			local label = "➡ " .. targetPlayer.Name
+			createButton("Teleports", label, function()
+				local char = targetPlayer.Character
+				if char and char:FindFirstChild("HumanoidRootPart") then
+					root.CFrame = char.HumanoidRootPart.CFrame + Vector3.new(0, 5, 0)
+					showMessage("Teleported to " .. targetPlayer.Name)
+				else
+					showMessage("Target not available.")
+				end
+			end)
+		end
+	end
+end)
+
+
+-- [ Toggle GUI Keybind ]
+local isOpen = true
+UserInputService.InputBegan:Connect(function(input, gpe)
+	if gpe then return end
+	if input.KeyCode == Enum.KeyCode.K then
+		isOpen = not isOpen
+		mainFrame.Visible = isOpen
+	end
+end)
+
+-- [ Click Teleport Tool ]
+createButton("Teleports", "🖱️ Enable Click Teleport", function()
+	local mouse = player:GetMouse()
+	local toolActive = true
+	showMessage("Click Teleport ON. Click anywhere to teleport. Press 'L' to cancel.")
+
+	local function onClick()
+		if toolActive then
+			local targetPos = mouse.Hit.Position
+			if targetPos then
+				root.CFrame = CFrame.new(targetPos + Vector3.new(0, 5, 0)) -- Slightly above surface
+				showMessage("Teleported to click position")
+			end
+		end
+	end
+
+	local clickConnection = mouse.Button1Down:Connect(onClick)
+
+	-- Toggle off with 'L'
+	local keyConnection
+	keyConnection = UserInputService.InputBegan:Connect(function(input, gpe)
+		if gpe then return end
+		if input.KeyCode == Enum.KeyCode.L then
+			toolActive = false
+			clickConnection:Disconnect()
+			keyConnection:Disconnect()
+			showMessage("Click Teleport OFF")
+		end
+	end)
+end)
+
+-- [ Kill Tab State ]
+local npcListVisible = false
+local playerListVisible = false
+local autoNearestNpc = false
+local killToggle = false
+local selectedKillTarget = nil
+local walkingToNpc = false
+local walkSpeedBackup = nil
+
+-- [ Helper: Find Nearest NPC ]
+local function findNearestNpc()
+	local nearest, shortestDist = nil, math.huge
+	for _, model in ipairs(workspace:GetDescendants()) do
+		if model:IsA("Model") and model:FindFirstChild("Humanoid") and model:FindFirstChild("HumanoidRootPart") and not Players:GetPlayerFromCharacter(model) then
+			local hum = model:FindFirstChild("Humanoid")
+			if hum and hum.Health > 0 then
+				local dist = (root.Position - model.HumanoidRootPart.Position).Magnitude
+				if dist < shortestDist then
+					shortestDist = dist
+					nearest = model
+				end
+			end
+		end
+	end
+	return nearest
+end
+
+-- [ Kill Tab Buttons ]
+createButton("Kill", "🔪 Toggle Kill Mode", function()
+	killToggle = not killToggle
+	showMessage(killToggle and "Kill Mode ON" or "Kill Mode OFF")
+end)
+
+createButton("Kill", "🤖 Toggle Auto Nearest NPC", function()
+	autoNearestNpc = not autoNearestNpc
+	showMessage(autoNearestNpc and "Auto Nearest NPC ON" or "Auto Nearest NPC OFF")
+end)
+
+createButton("Kill", "📋 Select Target Player", function()
+	local tab = tabFrames["Kill"]
+	playerListVisible = not playerListVisible
+
+	for _, child in ipairs(tab:GetChildren()) do
+		if child:IsA("TextButton") and child.Name == "PlayerSelect" then
+			child:Destroy()
+		end
+	end
+
+	if not playerListVisible then return end
+
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= player then
+			local btn = Instance.new("TextButton")
+			btn.Name = "PlayerSelect"
+			btn.Size = UDim2.new(1, 0, 0, 30)
+			btn.BackgroundColor3 = Color3.fromRGB(60, 0, 90)
+			btn.TextColor3 = Color3.new(1, 1, 1)
+			btn.Font = Enum.Font.GothamBold
+			btn.TextSize = 12
+			btn.Text = "🎯 " .. p.Name
+			btn.Parent = tab
+			btn.MouseButton1Click:Connect(function()
+				if p.Character then
+					selectedKillTarget = p.Character
+					showMessage("Selected Player: " .. p.Name)
+				end
+			end)
+		end
+	end
+end)
+
+createButton("Kill", "📋 Select Target NPC", function()
+	local tab = tabFrames["Kill"]
+	npcListVisible = not npcListVisible
+
+	for _, child in ipairs(tab:GetChildren()) do
+		if child:IsA("TextButton") and child.Name == "NPCSelect" then
+			child:Destroy()
+		end
+	end
+
+	if not npcListVisible then return end
+
+	for _, model in ipairs(workspace:GetDescendants()) do
+		if model:IsA("Model") and model:FindFirstChild("Humanoid") and model:FindFirstChild("HumanoidRootPart") and not Players:GetPlayerFromCharacter(model) then
+			local btn = Instance.new("TextButton")
+			btn.Name = "NPCSelect"
+			btn.Size = UDim2.new(1, 0, 0, 30)
+			btn.BackgroundColor3 = Color3.fromRGB(60, 0, 90)
+			btn.TextColor3 = Color3.new(1, 1, 1)
+			btn.Font = Enum.Font.GothamBold
+			btn.TextSize = 12
+			btn.Text = "🤖 " .. model.Name
+			btn.Parent = tab
+			btn.MouseButton1Click:Connect(function()
+				selectedKillTarget = model
+				showMessage("Selected NPC: " .. model.Name)
+			end)
+		end
+	end
+end)
+
+createButton("Kill", "🚶 Walk to Nearest NPC", function()
+	walkingToNpc = not walkingToNpc
+	showMessage(walkingToNpc and "Walking to Nearest NPC ON" or "Walking to Nearest NPC OFF")
+
+	local hum = character:FindFirstChildOfClass("Humanoid")
+	if walkingToNpc and hum then
+		walkSpeedBackup = hum.WalkSpeed
+		hum.WalkSpeed = 100
+	else
+		if hum and walkSpeedBackup then
+			hum.WalkSpeed = walkSpeedBackup
+		end
+	end
+end)
+
+-- [ Kill Runtime Logic ]
+RunService.Heartbeat:Connect(function()
+	-- Auto-target nearest NPC if toggle is on
+	if autoNearestNpc then
+		if not selectedKillTarget or (selectedKillTarget:FindFirstChild("Humanoid") and selectedKillTarget.Humanoid.Health <= 0) then
+			selectedKillTarget = findNearestNpc()
+			if selectedKillTarget then
+				showMessage("Auto-targeting: " .. selectedKillTarget.Name)
+			end
+		end
+	end
+
+	-- Walk to nearest NPC
+	if walkingToNpc then
+		local npc = findNearestNpc()
+		if npc and npc:FindFirstChild("HumanoidRootPart") then
+			local hum = character:FindFirstChildOfClass("Humanoid")
+			if hum then
+				hum:MoveTo(npc.HumanoidRootPart.Position)
+			end
+		end
+	end
+
+	-- Kill logic: move/rotate behind target
+	if killToggle and holdingClick and selectedKillTarget and selectedKillTarget:FindFirstChild("HumanoidRootPart") then
+		local targetHRP = selectedKillTarget.HumanoidRootPart
+		local behindPos = targetHRP.Position - targetHRP.CFrame.LookVector * 3 + Vector3.new(0, 2, 0)
+		local lookAt = CFrame.new(behindPos, targetHRP.Position)
+		root.CFrame = root.CFrame:Lerp(lookAt, 0.35)
+	end
+end)
+-- Kill logic: follow target and rotate toward them
+if killToggle and holdingClick and selectedKillTarget and selectedKillTarget:FindFirstChild("HumanoidRootPart") then
+	local targetHRP = selectedKillTarget.HumanoidRootPart
+	local targetPos = targetHRP.Position
+	local currentPos = root.Position
+
+	-- Position slightly behind the NPC
+	local behindPos = targetPos - targetHRP.CFrame.LookVector * 3 + Vector3.new(0, 2, 0)
+
+	-- Make player face the NPC
+	local lookCFrame = CFrame.new(currentPos, targetPos)
+	root.CFrame = CFrame.new(currentPos) * CFrame.Angles(0, math.atan2(targetPos.X - currentPos.X, targetPos.Z - currentPos.Z), 0)
+
+	-- Optional: move closer
+	-- root.CFrame = root.CFrame:Lerp(lookCFrame, 0.35)
+end
+
+-- [ Toggle GUI Keybind ]
+local isOpen = true
+UserInputService.InputBegan:Connect(function(input, gpe)
+	if gpe then return end
+	if input.KeyCode == Enum.KeyCode.K then
+		isOpen = not isOpen
+		mainFrame.Visible = isOpen
+	end
+end)
